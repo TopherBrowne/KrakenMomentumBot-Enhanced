@@ -17,7 +17,7 @@ from pathlib import Path
 import random
 
 BOT_NAME = "KrakenMomentumBot"
-BOT_VERSION = "v1.0.0"
+BOT_VERSION = "v1.1.1"
 
 KRAKEN_WS_URL = "wss://ws.kraken.com/v2"
 KRAKEN_REST_URL = "https://api.kraken.com"
