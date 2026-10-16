@@ -20,3 +20,6 @@ Comparison of architectural and algorithmic modifications between upstream Krake
 
 ## 5. Security & Repository Hygiene
 - Enhanced: Added .gitignore for .env, config.json, and *.jsonl transaction ledgers alongside a clean config.example.json template.
+
+## 6. Fixed redundant orders once thresholds are met
+- Eliminates redundant orders: If an asset already has an open position in positions, it is bypassed during candidate scoring. This locks in the initial entry price, allows trailing stops and take-profits to calculate accurately, and preserves open position capacity for other coins.
