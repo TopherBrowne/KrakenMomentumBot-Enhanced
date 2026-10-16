@@ -23,3 +23,6 @@ Comparison of architectural and algorithmic modifications between upstream Krake
 
 ## 6. Fixed redundant orders once thresholds are met
 - Eliminates redundant orders: If an asset already has an open position in positions, it is bypassed during candidate scoring. This locks in the initial entry price, allows trailing stops and take-profits to calculate accurately, and preserves open position capacity for other coins.
+
+## 7. Added open positions to HUD
+- Show open positions for pairs. Display entry and PnL. Normal display if not open.
