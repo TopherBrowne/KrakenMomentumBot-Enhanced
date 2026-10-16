@@ -375,6 +375,8 @@ def maybe_trade(
     best_mc_conf = 0.5
 
     for sym, st in symbol_states.items():
+        if sym in positions:
+            continue  # Do not re-enter or overwrite a coin we are already holding!
         mc_conf = monte_carlo_confidence(st, mc_paths, mc_horizon_sec)
         s = compute_score(
             st,
