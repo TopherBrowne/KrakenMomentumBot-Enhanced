@@ -1,0 +1,9 @@
+# Secrets & Config
+.env
+config.json
+
+# Logs & Cache
+*.jsonl
+*.log
+__pycache__/
+*.pyc
