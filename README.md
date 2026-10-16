@@ -68,6 +68,68 @@ This project is provided for educational and experimental purposes only.
 
 If you enable live trading, you do so at your own risk.
 
+# CONFIG SETTINGS & PARAMETER DEFINITIONS
+
+Below is the complete `config.json` schema and detailed parameter reference incorporating the settings calibrated for `KrakenMomentumBot-Enhanced`:
+
+```json
+{
+  "base_position_usd": 133.0,
+  "max_open_positions": 3,
+  "momentum_window_sec": 180,
+  "momentum_threshold_pct": 0.25,
+  "rsi_period": 14,
+  "rsi_min_long": 48.0,
+  "vol_min_pct": 0.05,
+  "vol_max_pct": 3.0,
+  "take_profit_pct": 4.5,
+  "hard_sl_pct": 0.7,
+  "trail_start_pct": 2.5,
+  "trail_step_pct": 0.5,
+  "mc_min_conf": 0.55,
+  "mc_paths": 1000,
+  "mc_horizon_sec": 60,
+  "hud_interval_sec": 10.0
+}
+
+```
+
+---
+
+## Parameter Definitions
+
+### Capital Allocation & Risk Management
+
+* **`base_position_usd`** `(float)`: Baseline order size in USD prior to Monte Carlo sizing multipliers. Calibrated to `133.0` so that maximum Monte Carlo path confidence (1.5x) caps position sizing at exactly **$200** notional.
+* **`max_open_positions`** `(int)`: Maximum number of concurrent active positions allowed across the universe. Calibrated to `3` to allocate up to **$600** total trading capital (3 x $200).
+* **`hard_sl_pct`** `(float)`: Fixed stop-loss percentage below entry price. Immediately triggers a market exit order if breached. Calibrated to `0.7` (-0.7%).
+* **`take_profit_pct`** `(float)`: Fixed take-profit target percentage above entry price. Triggers an immediate market exit to lock in gains. Calibrated to `4.5` (+4.5%) to clear Kraken's ~1.60% round-trip taker friction and secure net profitability.
+* **`trail_start_pct`** `(float)`: Percentage gain above entry required before the dynamic trailing stop activates. Calibrated to `2.5` (+2.5%) to ensure stops only lock in after crossing the round-trip fee hurdle.
+* **`trail_step_pct`** `(float)`: Percentage distance maintained below the peak price once trailing is engaged. If price drops by this percentage from its highest recorded peak, the position closes. Calibrated to `0.5` (0.5%).
+
+### Momentum & Signal Filters
+
+* **`momentum_window_sec`** `(int)`: Rolling lookback window in seconds used to evaluate price velocity without modifying the global memory retention buffer. Calibrated to `180` (3 minutes) to smooth out tick-level noise while preserving short-term momentum signals.
+* **`momentum_threshold_pct`** `(float)`: Minimum percentage price gain required across the lookback window to qualify as a valid entry candidate. Calibrated to `0.25` (+0.25%).
+* **`rsi_period`** `(int)`: Number of closed tick intervals used to calculate Relative Strength Index. Calibrated to `14`.
+* **`rsi_min_long`** `(float)`: Minimum RSI threshold required to approve a long entry. Calibrated to `48.0` to permit entry on early-stage reversal bounces off local lows.
+* **`vol_min_pct`** `(float)`: Minimum rolling volatility required over the window to ensure sufficient liquidity and price movement. Calibrated to `0.05` (0.05%).
+* **`vol_max_pct`** `(float)`: Maximum rolling volatility percentage allowed. Calibrated to `3.0` (3.0%) to prevent entering erratic slippage spikes or abnormal order book spreads.
+
+### Monte Carlo Simulation Engine
+
+* **`mc_min_conf`** `(float)`: Minimum simulated forward-path win probability required to approve execution. Calibrated to `0.55` (55% positive forward paths).
+* **`mc_paths`** `(int)`: Number of simulated price paths computed per candidate coin during each evaluation pass. Calibrated to `1000`.
+* **`mc_horizon_sec`** `(int)`: Forward projection horizon in seconds for each simulated path. Calibrated to `60`.
+
+### System & Hot-Reload Engine
+
+* **`hud_interval_sec`** `(float)`: Evaluation frequency in seconds. Controls the interval between live market scans, console HUD table refreshes, position management checks, and config.json disk hot-reloads. Calibrated to `10.0`.
+
+```
+
+```
+
 ## Project Structure
 
 - bot.py — main trading engine
