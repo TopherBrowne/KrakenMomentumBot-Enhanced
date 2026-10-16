@@ -464,7 +464,6 @@ def manage_positions(
     for sym in to_close:
         positions.pop(sym, None)
 
-
 def hud_scanner(
     symbol_states: Dict[str, SymbolState],
     mom_target: float,
@@ -483,25 +482,30 @@ def hud_scanner(
         vol = st.volatility_pct()
         mc_conf = monte_carlo_confidence(st, mc_paths, mc_horizon_sec)
         
-        # Proximity flag: turns ON if coin is close to or exceeding entry conditions
-        ready = (mom >= mom_target * 0.7) and (rsi >= rsi_target - 3.0) and (mc_conf >= mc_target * 0.9)
-        flag = "🔥 [HOT]" if ready else "  [---]"
+        # Check if the bot currently holds an open position in this pair
+        pos = positions.get(sym)
+        if pos:
+            pos_pnl = (st.last_price - pos.entry_price) * pos.size
+            pos_pct = (st.last_price - pos.entry_price) / pos.entry_price * 100.0
+            flag = "💼 [OPEN]"
+            extra = f" | Entry: {pos.entry_price:>9.2f} | PnL: {pos_pnl:>+6.2f} ({pos_pct:>+5.2f}%)"
+        else:
+            ready = (mom >= mom_target * 0.7) and (rsi >= rsi_target - 3.0) and (mc_conf >= mc_target * 0.9)
+            flag = "🔥 [HOT]" if ready else "  [---]"
+            extra = ""
 
         lines.append(
             f"  {flag} {sym:<8} | Price: {st.last_price:>9.2f} | "
             f"Mom: {mom:>+6.2f}% ({mom_target:>+4.2f}%) | "
             f"RSI: {rsi:>5.1f} ({rsi_target:>4.1f}) | "
             f"MC: {mc_conf:>4.2f} ({mc_target:>4.2f}) | "
-            f"Vol: {vol:>5.2f}%"
+            f"Vol: {vol:>5.2f}%{extra}"
         )
 
     if lines:
         log("--- TRACKED PAIRS METRICS ---")
         for line in lines:
             print(line, flush=True)
-
-            
-
 
 
 def hud_line(last_prices: Dict[str, float]) -> None:
