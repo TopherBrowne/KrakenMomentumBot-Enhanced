@@ -469,12 +469,17 @@ def maybe_trade(
 
 def manage_positions(
     last_prices: Dict[str, float],
+    symbol_states: Dict[str, SymbolState],
     hard_sl_pct: float,
     take_profit_pct: float,
     trail_start_pct: float,
     trail_step_pct: float,
     max_hold_sec: float = 0.0,
+    momentum_threshold_pct: float = 0.25,
+    rsi_min_long: float = 48.0,
+    max_hold_extend_sec: float = 600.0,  # Extend by 10 minutes if still surging
 ) -> None:
+    
     global realized_pnl_total, positions
     to_close: List[str] = []
 
@@ -505,12 +510,25 @@ def manage_positions(
             to_close.append(sym)
             continue
 
+        # Time-decay exit: close if position has stagnated longer than max_hold_sec
         if max_hold_sec > 0 and age_sec >= max_hold_sec:
-            log(f"[EXIT] TIME LIMIT {sym} held {int(age_sec)}s @ {lp:.2f}, pnl={pnl:.2f} ({pnl_pct:.3f}%)")
-            place_order(sym, "flat", pos.size, f"max_hold {int(age_sec)}s", lp)
-            realized_pnl_total += pnl
-            to_close.append(sym)
-            continue
+            st = symbol_states.get(sym)
+            mom = st.momentum_pct() if st else 0.0
+            rsi = st.rsi() if st else 50.0
+
+            # OVERRIDE: If trade is profitable and momentum is still strongly positive, extend hold time
+            if pnl_pct > 0.0 and mom and mom >= momentum_threshold_pct and rsi >= rsi_min_long:
+                pos.entry_time = now - (max_hold_sec - max_hold_extend_sec)
+                log(
+                    f"[HOLD EXTENSION] {sym} held {int(age_sec)}s granted +{int(max_hold_extend_sec)}s lease. "
+                    f"PnL={pnl:.2f} ({pnl_pct:.3f}%), Mom={mom:.3f}%, RSI={rsi:.1f}"
+                )
+            else:
+                log(f"[EXIT] TIME LIMIT {sym} held {int(age_sec)}s @ {lp:.2f}, pnl={pnl:.2f} ({pnl_pct:.3f}%)")
+                place_order(sym, "flat", pos.size, f"max_hold {int(age_sec)}s", lp)
+                realized_pnl_total += pnl
+                to_close.append(sym)
+                continue
 
         peak_pct = (pos.max_price - pos.entry_price) / pos.entry_price * 100.0
         if peak_pct >= trail_start_pct:
