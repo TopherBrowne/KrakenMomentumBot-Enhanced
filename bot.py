@@ -17,7 +17,7 @@ from pathlib import Path
 import random
 
 BOT_NAME = "KrakenMomentumBot"
-BOT_VERSION = "v1.1.2"
+BOT_VERSION = "v1.1.3"
 
 KRAKEN_WS_URL = "wss://ws.kraken.com/v2"
 KRAKEN_REST_URL = "https://api.kraken.com"
@@ -33,6 +33,10 @@ KRAKEN_API_KEY = ""
 KRAKEN_API_SECRET = ""
 
 CURRENT_CONFIG: dict = {}
+
+# Dynamic mappings discovered from Kraken public API
+KRAKEN_BASE_TO_WS: Dict[str, str] = {}
+KRAKEN_WS_TO_ORDER_PAIR: Dict[str, str] = {}
 
 def get_config_val(key: str, default: Any) -> Any:
     return CURRENT_CONFIG.get(key, default)
@@ -63,6 +67,55 @@ def load_kraken_keys() -> None:
         log("Kraken API keys loaded from environment variables.")
     else:
         log("Kraken API keys not set in environment. Live trading will be disabled.")
+
+def refresh_kraken_asset_pairs() -> None:
+    """Dynamically queries Kraken's official AssetPairs catalog to discover all tradable USD markets."""
+    global KRAKEN_BASE_TO_WS, KRAKEN_WS_TO_ORDER_PAIR
+    url = f"{KRAKEN_REST_URL}/0/public/AssetPairs"
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        pairs = data.get("result", {})
+        
+        base_map = {}
+        order_map = {}
+        for pair_name, info in pairs.items():
+            status = info.get("status", "online")
+            wsname = info.get("wsname")  # e.g., 'BTC/USD', 'ETH/USD', 'SUI/USD'
+            altname = info.get("altname", pair_name)
+            
+            if not wsname or status != "online":
+                continue
+                
+            # Filter for official USD quote pairs
+            if wsname.endswith("/USD"):
+                base = wsname.split("/")[0].upper()
+                base_map[base] = wsname
+                order_map[wsname] = altname
+                
+                # Handle Bitcoin naming aliases
+                if base == "XBT":
+                    base_map["BTC"] = wsname
+                elif base == "BTC":
+                    base_map["XBT"] = wsname
+
+        if base_map:
+            KRAKEN_BASE_TO_WS = base_map
+            KRAKEN_WS_TO_ORDER_PAIR = order_map
+            log(f"[KRAKEN PAIRS] Dynamically discovered {len(order_map)} tradable USD markets on Kraken.")
+    except Exception as e:
+        log(f"[KRAKEN PAIRS] Failed to fetch AssetPairs from Kraken: {e}")
+        # Safe baseline fallback if network/API is temporarily unreachable
+        if not KRAKEN_BASE_TO_WS:
+            fallback = {
+                "BTC": "BTC/USD", "XBT": "BTC/USD", "ETH": "ETH/USD",
+                "SOL": "SOL/USD", "XRP": "XRP/USD", "ADA": "ADA/USD",
+                "DOGE": "DOGE/USD", "AVAX": "AVAX/USD", "LINK": "LINK/USD",
+                "LTC": "LTC/USD", "DOT": "DOT/USD", "SUI": "SUI/USD",
+                "NEAR": "NEAR/USD", "SHIB": "SHIB/USD", "PEPE": "PEPE/USD"
+            }
+            KRAKEN_BASE_TO_WS = fallback
 
 def fetch_top_universe(vs: str = "usd", n: int = 30) -> List[str]:
     def fetch(order: str) -> List[str]:
@@ -95,21 +148,7 @@ def fetch_top_universe(vs: str = "usd", n: int = 30) -> List[str]:
         return ["BTC", "ETH", "SOL", "XRP"]
 
 def kraken_symbol_from_base(base: str) -> Optional[str]:
-    mapping = {
-        "BTC": "BTC/USD",
-        "XBT": "BTC/USD",
-        "ETH": "ETH/USD",
-        "SOL": "SOL/USD",
-        "XRP": "XRP/USD",
-        "ADA": "ADA/USD",
-        "DOGE": "DOGE/USD",
-        "AVAX": "AVAX/USD",
-        "LINK": "LINK/USD",
-        "MATIC": "MATIC/USD",
-        "LTC": "LTC/USD",
-        "DOT": "DOT/USD",
-    }
-    return mapping.get(base.upper())
+    return KRAKEN_BASE_TO_WS.get(base.upper())
 
 class Position:
     def __init__(self, symbol: str, entry_price: float, size: float, entry_time: Optional[float] = None):
@@ -200,11 +239,13 @@ def place_order(symbol: str, side: str, volume: float, reason: str, price: Optio
 
     success = False
     try:
+        # Use exact Kraken order altname if mapped, fallback to stripped symbol
+        order_pair = KRAKEN_WS_TO_ORDER_PAIR.get(symbol, symbol.replace("/", ""))
         data = {
             "ordertype": "market",
             "type": "buy" if side == "long" else "sell",
             "volume": volume,
-            "pair": symbol.replace("/", ""),
+            "pair": order_pair,
         }
         resp = kraken_private("/0/private/AddOrder", data)
         event["status"] = "sent"
@@ -525,7 +566,6 @@ def hud_scanner(
         for line in lines:
             print(line, flush=True)
 
-
 def hud_line(last_prices: Dict[str, float]) -> None:
     total_unreal = 0.0
     for sym, pos in positions.items():
@@ -660,6 +700,8 @@ async def kraken_ws_loop(
                             log("[UNIVERSE] Re-evaluating top active volume/market-cap pairs...")
                             try:
                                 loop = asyncio.get_running_loop()
+                                # Refresh both Kraken's official AssetPairs catalog and CoinGecko asynchronously
+                                await loop.run_in_executor(None, refresh_kraken_asset_pairs)
                                 new_bases = await loop.run_in_executor(None, fetch_top_universe, "usd", 30)
                                 new_symbols = set()
                                 for base in new_bases:
@@ -717,6 +759,9 @@ async def kraken_ws_loop(
 async def main() -> None:
     cfg = load_config()
     load_kraken_keys()
+
+    # Query Kraken's full public AssetPairs catalog on launch
+    refresh_kraken_asset_pairs()
 
     base_position_usd = float(cfg.get("base_position_usd", 25.0))
     momentum_window_sec = int(cfg.get("momentum_window_sec", 60))

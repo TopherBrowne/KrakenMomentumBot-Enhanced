@@ -1,0 +1,20 @@
+{
+  "base_position_usd": 25.0,
+  "max_open_positions": 3,
+  "momentum_threshold_pct": 0.01,
+  "momentum_window_sec": 10,
+  "rsi_period": 3,
+  "rsi_min_long": 30.0,
+  "vol_min_pct": 0.00,
+  "vol_max_pct": 50.0,
+  "mc_min_conf": 0.50,
+  "mc_paths": 200,
+  "mc_horizon_sec": 15,
+  "take_profit_pct": 5.0,
+  "hard_sl_pct": 5.0,
+  "trail_start_pct": 5.0,
+  "trail_step_pct": 0.5,
+  "max_hold_sec": 30,
+  "refresh_universe_sec": 120,
+  "hud_interval_sec": 5.0
+}
