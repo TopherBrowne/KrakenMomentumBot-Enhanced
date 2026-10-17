@@ -1,6 +1,5 @@
-
 {
-  "___comment" : "normal operating parameters"
+  "___comment" : "normal operating parameters",
   "base_position_usd": 133.0,
   "max_open_positions": 3,
   "momentum_threshold_pct": 0.25,

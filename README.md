@@ -1,76 +1,77 @@
-# KrakenMomentumBot (Open-Source Edition)
+```markdown
+# KrakenMomentumBot (Enhanced Edition)
 
-A fully standalone, paper-mode-first momentum trading bot for Kraken.
+A fully standalone, high-performance momentum trading bot built for Kraken Spot Markets[cite: 5].
 
-This bot uses:
+`KrakenMomentumBot-Enhanced` combines real-time streaming data, statistical momentum filters, Monte Carlo predictive path simulation, hot-reloading configurations, dynamic exchange catalog discovery, and granular execution risk controls[cite: 5].
 
-- Real-time Kraken WebSocket price data
-- Momentum signals
-- RSI filtering
-- Volatility filtering
-- Monte Carlo-style confidence scoring
-- Trailing stops
-- Hard stop-loss
-- Take-profit logic
+---
 
-There is:
+## Key Features
 
-- No Overseer system
-- No AI Reviewer
-- No regime engine
-- No private infrastructure
-- No bundled API keys
+- **Real-Time Kraken WebSocket v2 Streaming:** Continuous market feed ingestion without polling latency[cite: 5].
+- **Dynamic Asset Discovery:** Scans Kraken's public `/0/public/AssetPairs` catalog on startup and during scheduled hourly intervals to identify and trade qualifying USD spot pairs dynamically without hardcoded whitelists[cite: 5].
+- **CoinGecko Market Intersection:** Filters candidates by cross-referencing top volume and top market cap lists while excluding pegged stablecoins[cite: 5].
+- **Decoupled 30-Minute Price History Buffering:** Non-destructive rolling lookback memory allows changing indicators on the fly without waiting for a re-warm period[cite: 5].
+- **Multi-Factor Entry Scoring:** Combines price velocity (momentum), RSI, volatility fences, and forward Monte Carlo path confidence[cite: 5].
+- **Live Proximity Scanner (`hud_scanner`):** Terminal UI showing real-time metrics, live floating PnL on open positions, and a `🔥 [HOT]` radar for coins nearing entry thresholds[cite: 5].
+- **Execution Validation Guard:** Validates order placement responses before recording positions, eliminating phantom position tracking and accidental account liquidations[cite: 5].
+- **Time-Decay Exit (`max_hold_sec`):** Closes trades automatically if price action chops sideways without triggering take-profit or stop-loss limits[cite: 5].
+- **Zero-Downtime Hot-Reloading:** Adjust parameters in `config.json` while the bot is running; updates take effect on the next HUD tick without dropping WebSocket connections[cite: 5].
+- **Zero Private Dependencies:** No proprietary AI, regime engines, or remote servers required[cite: 6]. Everything runs locally and deterministically[cite: 6].
 
-Everything runs locally and independently.
+---
 
-## Default Mode: PAPER (Safe)
+## Operating Modes
 
-By default, the bot runs in PAPER mode:
+### 1. PAPER Mode (Default, Safe)
 
-- No real orders are sent
-- No API keys are required
-- All trades are simulated
-- Logs are local
+By default, the bot runs in `PAPER` mode[cite: 5, 6]:
+- Simulated order execution with zero capital risk[cite: 6].
+- No API keys required[cite: 6].
+- Full signal evaluation, Monte Carlo simulation, and position tracking[cite: 5].
+- All activities logged locally to `kraken_orders_log.jsonl`[cite: 5, 6].
 
-This is ideal for learning, testing, and experimentation.
+To explicitly set or reset your environment to paper mode:
 
-## Live Trading (Optional, At Your Own Risk)
+```powershell
+$env:KRAKEN_MOMENTUM_MODE = "paper"
 
-To enable live trading:
+```
 
-1. Copy config.example.json to config.json
-2. In config.json, change:
+### 2. LIVE Mode (Real Trading)
 
-   "mode": "paper"
+To engage live execution on Kraken Spot:
 
-   to:
+1. Set your environment variable:
+```powershell
+$env:KRAKEN_MOMENTUM_MODE = "live"
 
-   "mode": "live"
+```
 
-3. Set your Kraken API keys as environment variables:
 
-   KRAKEN_API_KEY=your_key_here  
-   KRAKEN_API_SECRET=your_secret_here  
+2. Export your Kraken API credentials:
+```powershell
+$env:KRAKEN_API_KEY = "your_api_key_here"
+$env:KRAKEN_API_SECRET = "your_api_secret_here"
 
-4. Restart the bot.
+```
 
-Your keys are never stored in this repo. You must provide your own.
 
-## Legal & Safety Disclaimer
+3. Configure your risk and sizing parameters in `config.json`.
 
-This project is provided for educational and experimental purposes only.
 
-- This is NOT financial advice.
-- You assume all risk when using this bot.
-- You are responsible for complying with your local laws.
-- You are responsible for your own trading decisions.
-- The authors and contributors are NOT liable for any financial losses.
+4. Launch `bot.py`.
 
-If you enable live trading, you do so at your own risk.
+
+
+Note: API keys are loaded strictly from system environment variables and are never stored in repository files.
+
+---
 
 # CONFIG SETTINGS & PARAMETER DEFINITIONS
 
-Below is the complete `config.json` schema and detailed parameter reference incorporating the settings calibrated for `KrakenMomentumBot-Enhanced`:
+Below is the complete `config.json` schema incorporating all risk management, momentum, simulation, and discovery parameters:
 
 ```json
 {
@@ -82,10 +83,12 @@ Below is the complete `config.json` schema and detailed parameter reference inco
   "rsi_min_long": 48.0,
   "vol_min_pct": 0.05,
   "vol_max_pct": 3.0,
-  "take_profit_pct": 4.5,
+  "take_profit_pct": 2.5,
   "hard_sl_pct": 0.7,
-  "trail_start_pct": 2.5,
-  "trail_step_pct": 0.5,
+  "trail_start_pct": 1.2,
+  "trail_step_pct": 0.4,
+  "max_hold_sec": 3600,
+  "refresh_universe_sec": 3600,
   "mc_min_conf": 0.55,
   "mc_paths": 1000,
   "mc_horizon_sec": 60,
@@ -98,73 +101,149 @@ Below is the complete `config.json` schema and detailed parameter reference inco
 
 ## Parameter Definitions
 
-### Capital Allocation & Risk Management
+### Capital Allocation & Position Risk Management
 
-* **`base_position_usd`** `(float)`: Baseline order size in USD prior to Monte Carlo sizing multipliers. Calibrated to `133.0` so that maximum Monte Carlo path confidence (1.5x) caps position sizing at exactly **$200** notional.
-* **`max_open_positions`** `(int)`: Maximum number of concurrent active positions allowed across the universe. Calibrated to `3` to allocate up to **$600** total trading capital (3 x $200).
-* **`hard_sl_pct`** `(float)`: Fixed stop-loss percentage below entry price. Immediately triggers a market exit order if breached. Calibrated to `0.7` (-0.7%).
-* **`take_profit_pct`** `(float)`: Fixed take-profit target percentage above entry price. Triggers an immediate market exit to lock in gains. Calibrated to `4.5` (+4.5%) to clear Kraken's ~1.60% round-trip taker friction and secure net profitability.
-* **`trail_start_pct`** `(float)`: Percentage gain above entry required before the dynamic trailing stop activates. Calibrated to `2.5` (+2.5%) to ensure stops only lock in after crossing the round-trip fee hurdle.
-* **`trail_step_pct`** `(float)`: Percentage distance maintained below the peak price once trailing is engaged. If price drops by this percentage from its highest recorded peak, the position closes. Calibrated to `0.5` (0.5%).
+* **`base_position_usd`** `(float)`: Baseline order size in USD prior to Monte Carlo sizing multipliers. Sizing multiplies up to 1.5x based on path confidence, capping allocation per trade.
 
-### Momentum & Signal Filters
 
-* **`momentum_window_sec`** `(int)`: Rolling lookback window in seconds used to evaluate price velocity without modifying the global memory retention buffer. Calibrated to `180` (3 minutes) to smooth out tick-level noise while preserving short-term momentum signals.
-* **`momentum_threshold_pct`** `(float)`: Minimum percentage price gain required across the lookback window to qualify as a valid entry candidate. Calibrated to `0.25` (+0.25%).
-* **`rsi_period`** `(int)`: Number of closed tick intervals used to calculate Relative Strength Index. Calibrated to `14`.
-* **`rsi_min_long`** `(float)`: Minimum RSI threshold required to approve a long entry. Calibrated to `48.0` to permit entry on early-stage reversal bounces off local lows.
-* **`vol_min_pct`** `(float)`: Minimum rolling volatility required over the window to ensure sufficient liquidity and price movement. Calibrated to `0.05` (0.05%).
-* **`vol_max_pct`** `(float)`: Maximum rolling volatility percentage allowed. Calibrated to `3.0` (3.0%) to prevent entering erratic slippage spikes or abnormal order book spreads.
+* **`max_open_positions`** `(int)`: Maximum number of concurrent active positions allowed across the entire universe. Once reached, new candidate scoring is bypassed until a position closes.
+
+
+* **`hard_sl_pct`** `(float)`: Fixed stop-loss percentage below entry price. Immediately triggers a market flat exit order if breached.
+
+
+* **`take_profit_pct`** `(float)`: Fixed take-profit target percentage above entry price. Automatically liquidates the position to lock in peak gains during strong price spikes.
+
+
+* **`trail_start_pct`** `(float)`: Percentage gain above entry required before the dynamic trailing stop activates. Ensures trailing only engages once fee friction hurdles have been cleared.
+
+
+* **`trail_step_pct`** `(float)`: Percentage distance maintained below the peak price once trailing is engaged. If the market pulls back by this percentage from its highest recorded peak, the trade closes.
+
+
+* **`max_hold_sec`** `(float | int)`: Maximum holding duration in seconds for any open position. If a trade does not reach a take-profit or stop-loss within this timeframe, it is exited via market order to free capital. Set to `0` to disable.
+
+
+
+### Momentum, Trend & Volatility Filters
+
+* **`momentum_window_sec`** `(int)`: Rolling lookback window in seconds used to evaluate price velocity. Dynamically slices the internal 30-minute buffer without requiring an indicator re-warm.
+
+
+* **`momentum_threshold_pct`** `(float)`: Minimum percentage price gain required across the lookback window to qualify as a valid entry candidate.
+
+
+* **`rsi_period`** `(int)`: Number of closed price intervals used to calculate the Relative Strength Index.
+
+
+* **`rsi_min_long`** `(float)`: Minimum RSI threshold required to approve a long entry. Filters out stagnant assets while permitting entries on momentum breakouts.
+
+
+* **`vol_min_pct`** `(float)`: Minimum price movement percentage required over the lookback window to confirm active market liquidity.
+
+
+* **`vol_max_pct`** `(float)`: Maximum allowable price volatility percentage over the lookback window. Rejects trades during erratic spreads or abnormal wick spikes.
+
+
+
+### Dynamic Universe & Discovery
+
+* **`refresh_universe_sec`** `(float | int)`: Frequency in seconds at which the bot queries CoinGecko and Kraken's `/0/public/AssetPairs` catalog in the background. Dynamically subscribes to newly qualified movers and prunes flat pairs without interrupting WebSocket connectivity or active positions.
+
+
 
 ### Monte Carlo Simulation Engine
 
-* **`mc_min_conf`** `(float)`: Minimum simulated forward-path win probability required to approve execution. Calibrated to `0.55` (55% positive forward paths).
-* **`mc_paths`** `(int)`: Number of simulated price paths computed per candidate coin during each evaluation pass. Calibrated to `1000`.
-* **`mc_horizon_sec`** `(int)`: Forward projection horizon in seconds for each simulated path. Calibrated to `60`.
+* **`mc_min_conf`** `(float)`: Minimum forward-path win probability required to approve an order.
 
-### System & Hot-Reload Engine
 
-* **`hud_interval_sec`** `(float)`: Evaluation frequency in seconds. Controls the interval between live market scans, console HUD table refreshes, position management checks, and config.json disk hot-reloads. Calibrated to `10.0`.
+* **`mc_paths`** `(int)`: Number of simulated price trajectories computed per candidate coin during each evaluation pass.
+
+
+* **`mc_horizon_sec`** `(int)`: Forward projection horizon in seconds for each simulated trajectory.
+
+
+
+### Telemetry & Hot-Reload Engine
+
+* **`hud_interval_sec`** `(float)`: Cadence in seconds between terminal UI table refreshes, position management evaluations, and `config.json` disk hot-reloads.
+
+
+
+---
+
+## Installation & Setup
+
+1. **Clone the repository:**
+```bash
+git clone [https://github.com/YourUser/KrakenMomentumBot.git](https://github.com/YourUser/KrakenMomentumBot.git)
+cd KrakenMomentumBot
+
+```
+
+
+2. **Install dependencies:**
+```bash
+pip install -r requirements.txt
+
+```
+
+
+3. **Set up configuration:**
+```bash
+cp config.example.json config.json
+
+```
+
+
+4. **Launch the bot:**
+```bash
+python bot.py
+
+```
+
+
+
+---
+
+## Repository Structure
+
+* `bot.py` — Primary asynchronous trading engine, WebSocket feed handler, and position manager.
+
+
+* `config.json.normal` — Reasonable normal configuration file loaded and reloaded on the fly. Copy to CONFIG.JSON
+
+
+* `config.json.wild` — WILD and UNREASONABLE configuration template. Use to test triggers and logic in development mode. Kinda fun to watch in PAPER MODE ONLY
+
+
+* `kraken_orders_log.jsonl` — Local append-only log recording every simulated and live order event.
+
+
+* `requirements.txt` — Python package dependencies (`websockets`, `requests`).
+
+
+* `CHANGELOG.md` — Detailed record of architectural and algorithmic modifications.
+* `README.md` — Documentation and operational guide.
+
+
+
+---
+
+## Legal & Safety Disclaimer
+
+This software is for educational, research, and experimental purposes only.
+
+* **Not Financial Advice:** Nothing contained in this software or documentation constitutes investment or financial advice.
+
+
+* **No Liability:** Cryptocurrency trading involves substantial financial risk. The authors and contributors assume no liability for financial losses, software bugs, execution slippage, exchange outages, or API errors.
+
+
+* **User Responsibility:** You are solely responsible for testing strategies in `PAPER` mode, verifying order sizing, securing API credentials, and complying with all relevant local financial regulations.
+
+
 
 ```
 
 ```
-
-## Project Structure
-
-- bot.py — main trading engine
-- config.example.json — example configuration (copy to config.json)
-- requirements.txt — Python dependencies
-- README.md — this file
-
-## Installation
-
-Clone the repo:
-
-    git clone https://github.com/YourUser/KrakenMomentumBot.git
-    cd KrakenMomentumBot
-
-Install dependencies:
-
-    pip install -r requirements.txt
-
-Copy the example config:
-
-    cp config.example.json config.json
-
-Run the bot:
-
-    python bot.py
-
-## Standalone Design
-
-This open-source edition is:
-
-- Fully standalone
-- No AI Reviewer
-- No regime engine
-- No Overseer integration
-- No internal file paths
-- No private modules
-
-Everything runs locally and independently.
