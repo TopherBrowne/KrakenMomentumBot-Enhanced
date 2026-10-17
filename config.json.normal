@@ -1,5 +1,6 @@
 
 {
+  "___comment" : "normal operating parameters"
   "base_position_usd": 133.0,
   "max_open_positions": 3,
   "momentum_threshold_pct": 0.25,
@@ -15,7 +16,7 @@
   "hard_sl_pct": 0.7,
   "trail_start_pct": 1.2,
   "trail_step_pct": 0.4,
-  "max_hold_sec": 3600,
+  "max_hold_sec": 1800,
   "refresh_universe_sec": 3600,
   "hud_interval_sec": 10.0
 }

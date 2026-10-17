@@ -1,4 +1,5 @@
 {
+  "___comment" : "wild parameters meant to trigger buy and sell ASAP and also force universe and max hold timers"
   "base_position_usd": 25.0,
   "max_open_positions": 3,
   "momentum_threshold_pct": 0.01,
@@ -15,6 +16,6 @@
   "trail_start_pct": 5.0,
   "trail_step_pct": 0.5,
   "max_hold_sec": 30,
-  "refresh_universe_sec": 120,
-  "hud_interval_sec": 5.0
+  "refresh_universe_sec": 60,
+  "hud_interval_sec": 15
 }
