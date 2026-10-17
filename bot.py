@@ -17,7 +17,7 @@ from pathlib import Path
 import random
 
 BOT_NAME = "KrakenMomentumBot"
-BOT_VERSION = "v1.1.1"
+BOT_VERSION = "v1.1.2"
 
 KRAKEN_WS_URL = "wss://ws.kraken.com/v2"
 KRAKEN_REST_URL = "https://api.kraken.com"
@@ -226,7 +226,6 @@ def place_order(symbol: str, side: str, volume: float, reason: str, price: Optio
     return success
 
 class SymbolState:
-    # Retain up to 30 minutes (1800s) of tick history in memory regardless of config
     MAX_HISTORY_SEC = 1800  
 
     def __init__(self, symbol: str, momentum_window_sec: int, rsi_period: int):
@@ -239,7 +238,6 @@ class SymbolState:
     def add_price(self, ts: float, price: float) -> None:
         self.last_price = price
         self.prices.append((ts, price))
-        # Purge only ticks older than the deep retention horizon (30 minutes)
         cutoff = ts - self.MAX_HISTORY_SEC
         while self.prices and self.prices[0][0] < cutoff:
             self.prices.popleft()
@@ -252,7 +250,6 @@ class SymbolState:
         now_ts, p_now = self.prices[-1]
         start_cutoff = now_ts - target_win
 
-        # Find the oldest price point within the active target window
         p_start = None
         for ts, p in self.prices:
             if ts >= start_cutoff:
@@ -386,7 +383,7 @@ def maybe_trade(
 
     for sym, st in symbol_states.items():
         if sym in positions:
-            continue  # Do not re-enter or overwrite a coin we are already holding!
+            continue
         mc_conf = monte_carlo_confidence(st, mc_paths, mc_horizon_sec)
         s = compute_score(
             st,
@@ -467,7 +464,6 @@ def manage_positions(
             to_close.append(sym)
             continue
 
-        # Time-decay exit: close if position has stagnated longer than max_hold_sec
         if max_hold_sec > 0 and age_sec >= max_hold_sec:
             log(f"[EXIT] TIME LIMIT {sym} held {int(age_sec)}s @ {lp:.2f}, pnl={pnl:.2f} ({pnl_pct:.3f}%)")
             place_order(sym, "flat", pos.size, f"max_hold {int(age_sec)}s", lp)
@@ -505,7 +501,6 @@ def hud_scanner(
         vol = st.volatility_pct()
         mc_conf = monte_carlo_confidence(st, mc_paths, mc_horizon_sec)
         
-        # Check if the bot currently holds an open position in this pair
         pos = positions.get(sym)
         if pos:
             pos_pnl = (st.last_price - pos.entry_price) * pos.size
@@ -553,8 +548,8 @@ async def kraken_ws_loop(
     base_position_usd: float,
     max_open_positions: int,
     momentum_threshold_pct: float,
-    momentum_window_sec: int,      # <-- ADD THIS
-    rsi_period: int,               # <-- ADD THIS
+    momentum_window_sec: int,
+    rsi_period: int,
     rsi_min_long: float,
     vol_min_pct: float,
     vol_max_pct: float,
@@ -566,9 +561,12 @@ async def kraken_ws_loop(
     trail_start_pct: float,
     trail_step_pct: float,
     hud_interval_sec: float,
+    max_hold_sec: float = 0.0,
+    refresh_universe_sec: float = 3600.0,
 ) -> None:
     last_prices: Dict[str, float] = {}
     last_hud = time.time()
+    last_universe_refresh = time.time()
 
     sub_msg = {
         "method": "subscribe",
@@ -614,10 +612,8 @@ async def kraken_ws_loop(
 
                     now = time.time()
                     if now - last_hud >= hud_interval_sec:
-                        # Reload config on the fly without dropping connection
                         cfg = load_config()
                         
-                        # Dynamically update window and RSI periods across all tracked pairs
                         active_window = int(cfg.get("momentum_window_sec", momentum_window_sec))
                         active_rsi_period = int(cfg.get("rsi_period", rsi_period))
                         for st in symbol_states.values():
@@ -654,8 +650,64 @@ async def kraken_ws_loop(
                             take_profit_pct=float(cfg.get("take_profit_pct", take_profit_pct)),
                             trail_start_pct=float(cfg.get("trail_start_pct", trail_start_pct)),
                             trail_step_pct=float(cfg.get("trail_step_pct", trail_step_pct)),
-                            max_hold_sec=float(cfg.get("max_hold_sec", 0.0)),
+                            max_hold_sec=float(cfg.get("max_hold_sec", max_hold_sec)),
                         )
+
+                        # Scheduled universe re-evaluation
+                        active_refresh_sec = float(cfg.get("refresh_universe_sec", refresh_universe_sec))
+                        if now - last_universe_refresh >= active_refresh_sec:
+                            last_universe_refresh = now
+                            log("[UNIVERSE] Re-evaluating top active volume/market-cap pairs...")
+                            try:
+                                loop = asyncio.get_running_loop()
+                                new_bases = await loop.run_in_executor(None, fetch_top_universe, "usd", 30)
+                                new_symbols = set()
+                                for base in new_bases:
+                                    ks = kraken_symbol_from_base(base)
+                                    if ks:
+                                        new_symbols.add(ks)
+
+                                # Subscribe to new qualified pairs
+                                to_add = [s for s in new_symbols if s not in symbol_states]
+                                if to_add:
+                                    log(f"[UNIVERSE] Discovered new candidate pairs: {to_add}")
+                                    for s in to_add:
+                                        symbol_states[s] = SymbolState(s, active_window, active_rsi_period)
+                                        symbols.append(s)
+
+                                    add_sub_msg = {
+                                        "method": "subscribe",
+                                        "params": {
+                                            "channel": "ticker",
+                                            "symbol": to_add,
+                                        },
+                                    }
+                                    await ws.send(json.dumps(add_sub_msg))
+                                    log(f"[WS] Subscribed to new pairs: {to_add}")
+
+                                # Prune inactive pairs (only if not currently held!)
+                                to_remove = [
+                                    s for s in list(symbol_states.keys())
+                                    if s not in new_symbols and s not in positions
+                                ]
+                                if to_remove:
+                                    log(f"[UNIVERSE] Pruning inactive pairs (not in open positions): {to_remove}")
+                                    unsub_msg = {
+                                        "method": "unsubscribe",
+                                        "params": {
+                                            "channel": "ticker",
+                                            "symbol": to_remove,
+                                        },
+                                    }
+                                    await ws.send(json.dumps(unsub_msg))
+                                    for s in to_remove:
+                                        symbol_states.pop(s, None)
+                                        if s in symbols:
+                                            symbols.remove(s)
+
+                            except Exception as e:
+                                log(f"[UNIVERSE] Periodic universe update failed: {e}")
+
                         last_hud = now
 
         except Exception as e:
@@ -683,6 +735,7 @@ async def main() -> None:
     mc_horizon_sec = int(cfg.get("mc_horizon_sec", 60))
     hud_interval_sec = float(cfg.get("hud_interval_sec", 30.0))
     max_hold_sec = float(cfg.get("max_hold_sec", 3600.0))
+    refresh_universe_sec = float(cfg.get("refresh_universe_sec", 3600.0))
 
     universe_bases = fetch_top_universe("usd", 30)
     symbols: List[str] = []
@@ -707,8 +760,8 @@ async def main() -> None:
         base_position_usd,
         max_open_positions,
         momentum_threshold_pct,
-        momentum_window_sec,      # <-- PASS THIS
-        rsi_period,               # <-- PASS THIS
+        momentum_window_sec,
+        rsi_period,
         rsi_min_long,
         vol_min_pct,
         vol_max_pct,
@@ -720,6 +773,8 @@ async def main() -> None:
         trail_start_pct,
         trail_step_pct,
         hud_interval_sec,
+        max_hold_sec,
+        refresh_universe_sec,
     )
 
 if __name__ == "__main__":
