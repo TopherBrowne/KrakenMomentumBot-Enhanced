@@ -38,8 +38,8 @@ Comparison of architectural and algorithmic modifications between upstream Krake
 - **Upstream:** Positions could only exit via fixed take-profit, trailing stop, or hard stop-loss[cite: 2]. Stagnant, low-volatility chop could tie up trading capital for many hours without resolution.
 - **Enhanced:** Added `entry_time` timestamping to `Position` objects and integrated a configurable `max_hold_sec` rule into `manage_positions()`[cite: 5]. If a position exceeds its maximum hold duration without hitting profit or stop thresholds, the bot automatically executes a market exit (`[EXIT] TIME LIMIT ... reason=max_hold`), freeing capital for active momentum opportunities[cite: 5].
 
-## 10. Asynchronous Scheduled Universe Refresh (`refresh_universe_sec`)
-- **Upstream:** CoinGecko universe discovery was executed strictly once during startup in `main()`[cite: 2]. Market shifts required restarting the bot to track newly trending coins.
-- **Enhanced:** Integrated a periodic background universe refresh governed by `refresh_universe_sec`[cite: 5]. CoinGecko calls run asynchronously off the event loop via `loop.run_in_executor()` to prevent blocking tick processing[cite: 5]. Newly qualified pairs subscribe incrementally via Kraken WebSocket v2 without dropping the connection, while dropped pairs are pruned safely only if they do not hold an active open position[cite: 5].
+## 10. Asynchronous Scheduled Universe Refresh & Dynamic Pair Discovery
+- **Upstream:** CoinGecko universe discovery was executed strictly once during startup and limited by a static hardcoded dictionary of 11 pairs.
+- **Enhanced:** Replaced static dictionary lookups with dynamic queries to Kraken's official `/0/public/AssetPairs` catalog on startup and during hourly background updates. Newly trending top volume/market-cap coins listed on Kraken automatically qualify for WebSocket monitoring without code modifications.
 
 ```
