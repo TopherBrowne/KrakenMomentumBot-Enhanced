@@ -112,10 +112,11 @@ def kraken_symbol_from_base(base: str) -> Optional[str]:
     return mapping.get(base.upper())
 
 class Position:
-    def __init__(self, symbol: str, entry_price: float, size: float):
+    def __init__(self, symbol: str, entry_price: float, size: float, entry_time: Optional[float] = None):
         self.symbol = symbol
         self.entry_price = entry_price
         self.size = size
+        self.entry_time = entry_time or time.time()
         self.max_price = entry_price
         self.realized_pnl = 0.0
 
@@ -424,7 +425,7 @@ def maybe_trade(
 
     log(f"[ENTRY] LONG {best_sym} @ {price:.2f}, notional={notional:.2f}, reason={reason}")
     if place_order(best_sym, "long", volume, reason, price):
-        positions[best_sym] = Position(best_sym, price, volume)
+        positions[best_sym] = Position(best_sym, price, volume, entry_time=time.time())
     else:
         log(f"[ENTRY ABORTED] Skipped tracking {best_sym} due to order placement failure.")
 
@@ -434,10 +435,12 @@ def manage_positions(
     take_profit_pct: float,
     trail_start_pct: float,
     trail_step_pct: float,
+    max_hold_sec: float = 0.0,
 ) -> None:
     global realized_pnl_total, positions
     to_close: List[str] = []
 
+    now = time.time()
     for sym, pos in positions.items():
         lp = last_prices.get(sym)
         if lp is None:
@@ -448,6 +451,7 @@ def manage_positions(
 
         pnl = (lp - pos.entry_price) * pos.size
         pnl_pct = (lp - pos.entry_price) / pos.entry_price * 100.0
+        age_sec = now - getattr(pos, "entry_time", now)
 
         if pnl_pct <= -hard_sl_pct:
             log(f"[EXIT] HARD SL {sym} @ {lp:.2f}, pnl={pnl:.2f} ({pnl_pct:.3f}%)")
@@ -459,6 +463,14 @@ def manage_positions(
         if pnl_pct >= take_profit_pct:
             log(f"[EXIT] TP {sym} @ {lp:.2f}, pnl={pnl:.2f} ({pnl_pct:.3f}%)")
             place_order(sym, "flat", pos.size, f"take_profit {pnl_pct:.3f}%", lp)
+            realized_pnl_total += pnl
+            to_close.append(sym)
+            continue
+
+        # Time-decay exit: close if position has stagnated longer than max_hold_sec
+        if max_hold_sec > 0 and age_sec >= max_hold_sec:
+            log(f"[EXIT] TIME LIMIT {sym} held {int(age_sec)}s @ {lp:.2f}, pnl={pnl:.2f} ({pnl_pct:.3f}%)")
+            place_order(sym, "flat", pos.size, f"max_hold {int(age_sec)}s", lp)
             realized_pnl_total += pnl
             to_close.append(sym)
             continue
@@ -642,6 +654,7 @@ async def kraken_ws_loop(
                             take_profit_pct=float(cfg.get("take_profit_pct", take_profit_pct)),
                             trail_start_pct=float(cfg.get("trail_start_pct", trail_start_pct)),
                             trail_step_pct=float(cfg.get("trail_step_pct", trail_step_pct)),
+                            max_hold_sec=float(cfg.get("max_hold_sec", 0.0)),
                         )
                         last_hud = now
 
@@ -669,6 +682,7 @@ async def main() -> None:
     mc_paths = int(cfg.get("mc_paths", 1000))
     mc_horizon_sec = int(cfg.get("mc_horizon_sec", 60))
     hud_interval_sec = float(cfg.get("hud_interval_sec", 30.0))
+    max_hold_sec = float(cfg.get("max_hold_sec", 3600.0))
 
     universe_bases = fetch_top_universe("usd", 30)
     symbols: List[str] = []
