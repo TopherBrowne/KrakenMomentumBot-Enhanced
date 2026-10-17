@@ -179,7 +179,7 @@ def log_order(event: Dict[str, Any]) -> None:
     with ORDERS_LOG_FILE.open("a", encoding="utf-8") as f:
         f.write(json.dumps(event) + "\n")
 
-def place_order(symbol: str, side: str, volume: float, reason: str, price: Optional[float]) -> None:
+def place_order(symbol: str, side: str, volume: float, reason: str, price: Optional[float]) -> bool:
     ts = datetime.now(timezone.utc).isoformat()
     event = {
         "timestamp": ts,
@@ -195,8 +195,9 @@ def place_order(symbol: str, side: str, volume: float, reason: str, price: Optio
         log(f"[TRADE] PAPER {side.upper()} {symbol} vol={volume:.6f} reason={reason}")
         event["status"] = "paper"
         log_order(event)
-        return
+        return True
 
+    success = False
     try:
         data = {
             "ordertype": "market",
@@ -207,13 +208,21 @@ def place_order(symbol: str, side: str, volume: float, reason: str, price: Optio
         resp = kraken_private("/0/private/AddOrder", data)
         event["status"] = "sent"
         event["response"] = resp
-        log(f"[TRADE] LIVE {side.upper()} {symbol} vol={volume:.6f} resp={resp}")
+        if resp and not resp.get("error") and resp.get("result", {}).get("txid"):
+            log(f"[TRADE] LIVE {side.upper()} {symbol} vol={volume:.6f} resp={resp}")
+            success = True
+        else:
+            log(f"[ORDER REJECTED] Kraken rejected {side} {symbol}: {resp}")
+            success = False
     except Exception as e:
         event["status"] = "error"
         event["error"] = str(e)
         log(f"[TRADE] ERROR sending order: {e}")
+        success = False
     finally:
         log_order(event)
+
+    return success
 
 class SymbolState:
     # Retain up to 30 minutes (1800s) of tick history in memory regardless of config
@@ -414,8 +423,10 @@ def maybe_trade(
     )
 
     log(f"[ENTRY] LONG {best_sym} @ {price:.2f}, notional={notional:.2f}, reason={reason}")
-    place_order(best_sym, "long", volume, reason, price)
-    positions[best_sym] = Position(best_sym, price, volume)
+    if place_order(best_sym, "long", volume, reason, price):
+        positions[best_sym] = Position(best_sym, price, volume)
+    else:
+        log(f"[ENTRY ABORTED] Skipped tracking {best_sym} due to order placement failure.")
 
 def manage_positions(
     last_prices: Dict[str, float],
