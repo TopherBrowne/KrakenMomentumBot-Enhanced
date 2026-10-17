@@ -704,11 +704,15 @@ async def kraken_ws_loop(
                         )
                         manage_positions(
                             last_prices,
+                            symbol_states,
                             hard_sl_pct=float(cfg.get("hard_sl_pct", hard_sl_pct)),
                             take_profit_pct=float(cfg.get("take_profit_pct", take_profit_pct)),
                             trail_start_pct=float(cfg.get("trail_start_pct", trail_start_pct)),
                             trail_step_pct=float(cfg.get("trail_step_pct", trail_step_pct)),
                             max_hold_sec=float(cfg.get("max_hold_sec", max_hold_sec)),
+                            momentum_threshold_pct=float(cfg.get("momentum_threshold_pct", momentum_threshold_pct)),
+                            rsi_min_long=float(cfg.get("rsi_min_long", rsi_min_long)),
+                            max_hold_extend_sec=float(cfg.get("max_hold_extend_sec", 600.0)),
                         )
 
                         # Scheduled universe re-evaluation
